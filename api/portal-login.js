@@ -24,6 +24,36 @@ function extractCookie(setCookieHeader, existing) {
   return Object.entries(map).map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
+function extractTables(html) {
+  const stripTags = s => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+  const tables = [];
+  const tableRegex = /<table[\s\S]*?<\/table>/gi;
+  let tm;
+  while ((tm = tableRegex.exec(html))) {
+    const tableHtml = tm[0];
+    const rows = [];
+    const rowRegex = /<tr[\s\S]*?<\/tr>/gi;
+    let rm;
+    while ((rm = rowRegex.exec(tableHtml))) {
+      const rowHtml = rm[0];
+      const cells = [];
+      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      let cm;
+      while ((cm = cellRegex.exec(rowHtml))) {
+        cells.push(stripTags(cm[1]));
+      }
+      if (cells.length) rows.push(cells);
+    }
+    if (rows.length) tables.push(rows);
+  }
+  return tables;
+}
+
+function extractTitle(html) {
+  const m = html.match(/<title>([\s\S]*?)<\/title>/i);
+  return m ? m[1].trim() : "";
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -31,6 +61,18 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   try {
+    if (req.method === "POST" && req.body.step === "fetchPage") {
+      const { sessionCookie, path } = req.body;
+      const url = path.startsWith("http") ? path : BASE + path;
+      const pageRes = await fetch(url, { headers: { Cookie: sessionCookie || "" } });
+      const html = await pageRes.text();
+      const loggedOut = html.toLowerCase().includes("application number / register number") || html.toLowerCase().includes('id="username"');
+      if (loggedOut) {
+        return res.status(401).json({ error: "Session expired -- please log in again." });
+      }
+      return res.status(200).json({ title: extractTitle(html), tables: extractTables(html) });
+    }
+
     if (req.method === "GET" && req.query.step === "start") {
       // 1. Load the login page to establish a session cookie
       const pageRes = await fetch(LOGIN_PAGE_URL);
