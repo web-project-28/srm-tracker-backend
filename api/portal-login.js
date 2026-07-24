@@ -54,18 +54,41 @@ function extractTitle(html) {
   return m ? m[1].trim() : "";
 }
 
+function extractBodyText(html) {
+  // Strip script/style/nav/header/footer blocks, then pull remaining visible text.
+  let cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ");
+  // Prefer text from common "main content" containers if present, else the whole body.
+  const bodyMatch = cleaned.match(/<body[\s\S]*?>([\s\S]*?)<\/body>/i);
+  const scope = bodyMatch ? bodyMatch[1] : cleaned;
+  const text = scope
+    .replace(/<[^>]+>/g, "\n")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join("\n");
+  return text.slice(0, 4000); // keep it bounded
+}
+
 function discoverLinks(html) {
   const stripTags = s => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
-  const linkRegex = /<a\s+[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   const seen = new Set();
   const links = [];
+
+  // Pass 1: normal <a href="..."> links, paired with their visible text.
+  const linkRegex = /<a\s+[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m = linkRegex.exec(html))) {
     let href = m[1].trim();
     const label = stripTags(m[2]);
     if (!label) continue;
-    // Only keep links that point back into the student portal itself
-    if (href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("http") && !href.includes("student.srmap.edu.in")) continue;
+    if (href.startsWith("javascript:") || href.startsWith("mailto:") || (href.startsWith("http") && !href.includes("student.srmap.edu.in"))) continue;
     if (!href.startsWith("http")) {
       href = href.startsWith("/") ? BASE + href : BASE + "/srmapstudentcorner/" + href;
     }
@@ -73,6 +96,40 @@ function discoverLinks(html) {
     seen.add(href);
     links.push({ label, url: href });
   }
+
+  // Pass 2: menus that navigate via JavaScript (onclick="...") instead of plain href.
+  // Look for any element with an onclick handler referencing a portal-style path,
+  // and pull the nearest visible text as its label.
+  const clickableRegex = /<a\s+[^>]*onclick\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  while ((m = clickableRegex.exec(html))) {
+    const onclickAttr = m[1];
+    const label = stripTags(m[2]);
+    if (!label) continue;
+    const pathMatch = onclickAttr.match(/['"`](\/[A-Za-z0-9_\-\/\.]*srmapstudentcorner[A-Za-z0-9_\-\/\.]*|\/srmapstudentcorner\/[A-Za-z0-9_\-\/\.]+)['"`]/i)
+      || onclickAttr.match(/['"`]([A-Za-z0-9_\-]+\.(?:aspx|jsp|php|do|action))['"`]/i);
+    if (!pathMatch) continue;
+    let href = pathMatch[1];
+    if (!href.startsWith("http")) {
+      href = href.startsWith("/") ? BASE + href : BASE + "/srmapstudentcorner/" + href;
+    }
+    if (seen.has(href)) continue;
+    seen.add(href);
+    links.push({ label, url: href });
+  }
+
+  // Pass 3: catch-all -- any quoted string anywhere in the page that looks like a
+  // portal-relative path, in case navigation happens through inline JS variables
+  // rather than href or onclick on the same tag.
+  const rawPathRegex = /["'](\/srmapstudentcorner\/[A-Za-z0-9_\-\/\.]+)["']/gi;
+  while ((m = rawPathRegex.exec(html))) {
+    const href = BASE + m[1];
+    if (seen.has(href)) continue;
+    if (href.includes("captcha") || href.includes("StudentLoginToPortal") || href.includes(".css") || href.includes(".js") || href.includes(".png") || href.includes(".jpg")) continue;
+    seen.add(href);
+    const guessedLabel = m[1].split("/").filter(Boolean).pop().replace(/[-_]/g, " ");
+    links.push({ label: guessedLabel, url: href });
+  }
+
   return links;
 }
 
@@ -100,7 +157,9 @@ module.exports = async function handler(req, res) {
       if (loggedOut) {
         return res.status(401).json({ error: "Session expired -- please log in again." });
       }
-      return res.status(200).json({ title: extractTitle(html), tables: extractTables(html) });
+      const tables = extractTables(html);
+      const text = tables.length === 0 ? extractBodyText(html) : "";
+      return res.status(200).json({ title: extractTitle(html), tables, text });
     }
 
     if (req.method === "GET" && req.query.step === "start") {
