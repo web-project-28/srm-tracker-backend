@@ -239,6 +239,7 @@ module.exports = async function handler(req, res) {
             headers: {
               "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
               "X-Requested-With": "XMLHttpRequest",
+              "Referer": BASE + "/srmapstudentcorner/HRDSystem",
               Cookie: sessionCookie || "",
             },
             body,
@@ -247,7 +248,8 @@ module.exports = async function handler(req, res) {
           const tables = extractTables(html);
           const text = tables.length === 0 ? extractBodyText(html) : "";
           const snippet = (tables.length ? tables[0].slice(0,2).map(row=>row.join(" | ")).join(" // ") : text).slice(0, 160);
-          if (snippet.trim()) {
+          const isGenericFallback = snippet.toLowerCase().includes("welcome to srm university");
+          if (snippet.trim() && !isGenericFallback) {
             results.push({ body, snippet, hasTables: tables.length > 0 });
           }
         } catch (e) {
