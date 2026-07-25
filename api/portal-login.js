@@ -230,6 +230,7 @@ module.exports = async function handler(req, res) {
       const candidates = [];
       for (let i = 1; i <= 20; i++) candidates.push(`id=${i}`);
       for (let i = 1; i <= 15; i++) candidates.push(`rid=${i}`);
+      for (let i = 1; i <= 30; i++) candidates.push(`arg=${i}`);
 
       const results = [];
       for (const body of candidates) {
