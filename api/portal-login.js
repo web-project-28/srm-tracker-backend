@@ -224,6 +224,39 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    if (req.method === "POST" && req.body.step === "probeReports") {
+      const { sessionCookie } = req.body;
+      const REPORT_URL = BASE + "/srmapstudentcorner/students/report/studentreportresources.jsp";
+      const candidates = [];
+      for (let i = 1; i <= 20; i++) candidates.push(`id=${i}`);
+      for (let i = 1; i <= 15; i++) candidates.push(`rid=${i}`);
+
+      const results = [];
+      for (const body of candidates) {
+        try {
+          const r = await fetch(REPORT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+              "X-Requested-With": "XMLHttpRequest",
+              Cookie: sessionCookie || "",
+            },
+            body,
+          });
+          const html = await r.text();
+          const tables = extractTables(html);
+          const text = tables.length === 0 ? extractBodyText(html) : "";
+          const snippet = (tables.length ? tables[0].slice(0,2).map(row=>row.join(" | ")).join(" // ") : text).slice(0, 160);
+          if (snippet.trim()) {
+            results.push({ body, snippet, hasTables: tables.length > 0 });
+          }
+        } catch (e) {
+          // skip failures silently, keep probing
+        }
+      }
+      return res.status(200).json({ results });
+    }
+
     res.status(400).json({ error: "Unknown request." });
   } catch (e) {
     res.status(500).json({ error: "Server error: " + e.message });
