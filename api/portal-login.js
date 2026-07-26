@@ -149,9 +149,17 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === "POST" && req.body.step === "fetchPage") {
-      const { sessionCookie, path } = req.body;
+      const { sessionCookie, path, postBody } = req.body;
       const url = path.startsWith("http") ? path : BASE + path;
-      const pageRes = await fetch(url, { headers: { Cookie: sessionCookie || "" } });
+      const fetchOpts = { headers: { Cookie: sessionCookie || "" } };
+      if (postBody) {
+        fetchOpts.method = "POST";
+        fetchOpts.headers["Content-Type"] = "application/x-www-form-urlencoded";
+        fetchOpts.headers["X-Requested-With"] = "XMLHttpRequest";
+        fetchOpts.headers["Referer"] = BASE + "/srmapstudentcorner/HRDSystem";
+        fetchOpts.body = postBody;
+      }
+      const pageRes = await fetch(url, fetchOpts);
       const html = await pageRes.text();
       const loggedOut = html.toLowerCase().includes("application number / register number") || html.toLowerCase().includes('id="username"');
       if (loggedOut) {
@@ -228,9 +236,15 @@ module.exports = async function handler(req, res) {
       const { sessionCookie } = req.body;
       const REPORT_URL = BASE + "/srmapstudentcorner/students/report/studentreportresources.jsp";
       const candidates = [];
-      for (let i = 100; i <= 140; i++) candidates.push(`id=${i}`); // funLoadDetails offset pattern -- Time Table confirmed at 101
-      for (let i = 1; i <= 20; i++) candidates.push(`id=${i}`);
-      for (let i = 1; i <= 10; i++) candidates.push(`rid=${i}`);
+      for (let i = 1; i <= 25; i++) candidates.push(`ids=${i}`); // confirmed field name from real production code
+
+      // Visit the dashboard first -- some portals only serve real AJAX content
+      // after the session has "seen" the main page, same as a real browser would.
+      try {
+        await fetch(BASE + "/srmapstudentcorner/HRDSystem", { headers: { Cookie: sessionCookie || "" } });
+      } catch (e) {
+        // non-fatal -- continue probing even if this fails
+      }
 
       const results = [];
       for (const body of candidates) {
