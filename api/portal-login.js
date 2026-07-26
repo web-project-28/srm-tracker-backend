@@ -260,6 +260,38 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ results });
     }
 
+    if (req.method === "GET" && req.query.step === "probeAssets") {
+      const candidateFiles = [
+        "app.js", "main.js", "srmap.js", "srmapstudentcorner.js", "activity.js",
+        "menu.js", "menus.js", "script.js", "scripts.js", "functions.js",
+        "common.js", "portal.js", "student.js", "sidebar.js", "navigation.js",
+        "custom1.js", "custom2.js", "site.js", "index.js", "global.js",
+      ];
+      const found = [];
+      for (const file of candidateFiles) {
+        const url = BASE + "/srmapstudentcorner/resources/js/" + file;
+        try {
+          const r = await fetch(url);
+          if (r.status !== 200) continue;
+          const js = await r.text();
+          if (js.length < 20) continue; // likely an empty/error placeholder
+          const hasReport = /studentreportresources/i.test(js);
+          const hasActivity = /clsactivity/i.test(js);
+          if (hasReport || hasActivity) {
+            // pull a window of text around the first relevant match
+            const idx = js.search(/studentreportresources|clsactivity/i);
+            const snippet = js.slice(Math.max(0, idx - 100), idx + 500);
+            found.push({ file, snippet });
+          } else {
+            found.push({ file, snippet: "(file exists, " + js.length + " bytes, no relevant match)" });
+          }
+        } catch (e) {
+          // file doesn't exist or fetch failed -- skip
+        }
+      }
+      return res.status(200).json({ found });
+    }
+
     res.status(400).json({ error: "Unknown request." });
   } catch (e) {
     res.status(500).json({ error: "Server error: " + e.message });
