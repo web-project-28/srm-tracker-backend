@@ -228,9 +228,9 @@ module.exports = async function handler(req, res) {
       const { sessionCookie } = req.body;
       const REPORT_URL = BASE + "/srmapstudentcorner/students/report/studentreportresources.jsp";
       const candidates = [];
+      for (let i = 100; i <= 140; i++) candidates.push(`id=${i}`); // funLoadDetails offset pattern -- Time Table confirmed at 101
       for (let i = 1; i <= 20; i++) candidates.push(`id=${i}`);
-      for (let i = 1; i <= 15; i++) candidates.push(`rid=${i}`);
-      for (let i = 1; i <= 30; i++) candidates.push(`arg=${i}`);
+      for (let i = 1; i <= 10; i++) candidates.push(`rid=${i}`);
 
       const results = [];
       for (const body of candidates) {
