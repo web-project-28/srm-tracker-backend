@@ -306,6 +306,51 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ found });
     }
 
+    if (req.method === "POST" && req.body.step === "submitAttendanceCode") {
+      const { sessionCookie, code } = req.body;
+      if (!code) return res.status(400).json({ error: "Enter the attendance code first." });
+
+      const SUBMIT_URL = BASE + "/srmapstudentcorner/students/transaction/studentattendanceresources.jsp";
+      const payload = new URLSearchParams({
+        acode: code,
+        dynamiclatdata: "0",
+        dynamiclonxdata: "0",
+        ids: "1",
+      });
+
+      const response = await fetch(SUBMIT_URL, {
+        method: "POST",
+        body: payload.toString(),
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Cookie": sessionCookie || "",
+          "Referer": BASE + "/srmapstudentcorner/HRDSystem",
+        },
+      });
+
+      const text = await response.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(text.trim());
+      } catch {
+        try {
+          responseData = JSON.parse(text.replace(/<[^>]+>/g, "").trim());
+        } catch {
+          return res.status(200).json({ success: false, message: "Couldn't read the portal's response -- try again." });
+        }
+      }
+
+      if (responseData.resultstatus === "1") {
+        return res.status(200).json({ success: true, message: "Attendance captured successfully!" });
+      } else if (typeof responseData.result === "string" && responseData.result.includes("Your Attendance captured al")) {
+        return res.status(200).json({ success: true, message: "Attendance already captured for this class." });
+      } else if (typeof responseData.result === "string" && responseData.result.includes("You have entered the Wrong Attendance")) {
+        return res.status(200).json({ success: false, message: "Wrong attendance code -- double check and try again." });
+      } else {
+        return res.status(200).json({ success: false, message: "Couldn't submit -- the code may be incorrect or expired." });
+      }
+    }
+
     res.status(400).json({ error: "Unknown request." });
   } catch (e) {
     res.status(500).json({ error: "Server error: " + e.message });
