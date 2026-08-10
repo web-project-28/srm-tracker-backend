@@ -182,9 +182,39 @@ module.exports = async function handler(req, res) {
       const captchaBase64 = Buffer.from(captchaBuffer).toString("base64");
       const contentType = captchaRes.headers.get("content-type") || "image/jpeg";
 
-      return res.status(200).json({
-        sessionCookie: cookie,
-        captchaImage: `data:${contentType};base64,${captchaBase64}`
+      // OCR.Space free API
+let captchaText = '';
+
+try {
+  const form = new URLSearchParams();
+  form.append('base64Image', `data:${contentType};base64,${captchaBase64}`);
+  form.append('language', 'eng');
+
+  const ocrRes = await fetch('https://api.ocr.space/parse/image', {
+    method: 'POST',
+    headers: {
+      apikey: process.env.OCR_SPACE_API_KEY,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: form.toString()
+  });
+
+  const ocrData = await ocrRes.json();
+
+  captchaText =
+    ocrData?.ParsedResults?.[0]?.ParsedText
+      ?.replace(/[^a-zA-Z0-9]/g, '')
+      ?.trim()
+      ?.slice(0, 6) || '';
+} catch (e) {
+  captchaText = '';
+}
+
+return res.status(200).json({
+  sessionCookie: cookie,
+  captchaImage: `data:${contentType};base64,${captchaBase64}`,
+  captchaText
+});
       });
     }
 
