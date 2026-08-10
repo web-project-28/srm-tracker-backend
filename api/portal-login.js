@@ -184,8 +184,7 @@ module.exports = async function handler(req, res) {
 
       return res.status(200).json({
         sessionCookie: cookie,
-        captchaImage: `data:${contentType};base64,${captchaBase64}`,
-captchaText: '1234',
+        captchaImage: `data:${contentType};base64,${captchaBase64}`
       });
     }
 
