@@ -215,7 +215,6 @@ return res.status(200).json({
   captchaImage: `data:${contentType};base64,${captchaBase64}`,
   captchaText
 });
-      });
     }
 
     if (req.method === "POST" && req.body.step === "login") {
