@@ -544,24 +544,16 @@ try {
 
   return res.status(200).json({
     success: true,
-
     query,
-
     detected: {
       courseCode: detectedCourse || null,
       examType: detectedExamType || null,
       year: detectedYear || null,
       month: detectedMonth || null
     },
-
-    pagesVisited:
-      visited.size,
-
-    results:
-      finalResults
+    pagesVisited: visited.size,
+    results: finalResults
   });
-}
-  try {
     if (req.method === "POST" && req.body.step === "discover") {
       const { sessionCookie } = req.body;
       const pageRes = await fetch(LOGIN_PAGE_URL, { headers: { Cookie: sessionCookie || "" } });
