@@ -138,7 +138,423 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
+try { // ============================================================
+// LIVE SRM INTRANET EXAMINATION / QUESTION PAPER SEARCH
+// ============================================================
 
+if (req.method === "POST" && req.body.step === "searchExamDocuments") {
+  const {
+    sessionCookie = "",
+    query = "",
+    courseCode = "",
+    examType = "",
+    year = "",
+    month = ""
+  } = req.body || {};
+
+  const BASE_INTRANET = "https://intranet.srmap.edu.in";
+
+  function cleanText(value) {
+    return String(value || "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function makeAbsoluteUrl(href, pageUrl) {
+    try {
+      return new URL(href, pageUrl).href;
+    } catch {
+      return "";
+    }
+  }
+
+  function extractIntranetLinks(html, pageUrl) {
+    const links = [];
+    const seen = new Set();
+
+    const regex =
+      /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+    let match;
+
+    while ((match = regex.exec(html))) {
+      const href = makeAbsoluteUrl(match[1], pageUrl);
+      const label = cleanText(match[2]);
+
+      if (!href || !label) continue;
+
+      try {
+        const host = new URL(href).host;
+
+        if (host !== new URL(BASE_INTRANET).host) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+
+      if (seen.has(href)) continue;
+
+      seen.add(href);
+
+      links.push({
+        label,
+        url: href
+      });
+    }
+
+    return links;
+  }
+
+  function isPdf(link) {
+    return /\.pdf(?:$|[?#])/i.test(link.url) ||
+           /\.pdf\b/i.test(link.label);
+  }
+
+  function scoreResult(link) {
+    const text =
+      `${link.label} ${link.url}`.toLowerCase();
+
+    let score = 0;
+
+    if (
+      courseCode &&
+      text.includes(String(courseCode).toLowerCase())
+    ) {
+      score += 100;
+    }
+
+    if (
+      examType &&
+      text.includes(String(examType).toLowerCase())
+    ) {
+      score += 50;
+    }
+
+    if (
+      year &&
+      text.includes(String(year))
+    ) {
+      score += 30;
+    }
+
+    if (
+      month &&
+      text.includes(String(month).toLowerCase())
+    ) {
+      score += 20;
+    }
+
+    if (isPdf(link)) {
+      score += 10;
+    }
+
+    return score;
+  }
+
+  // ----------------------------------------------------------
+  // Parse missing values from the natural-language query
+  // ----------------------------------------------------------
+
+  let detectedCourse =
+    String(courseCode || "").trim().toUpperCase();
+
+  let detectedYear =
+    String(year || "").trim();
+
+  let detectedExamType =
+    String(examType || "").trim();
+
+  let detectedMonth =
+    String(month || "").trim();
+
+  if (!detectedCourse) {
+    const courseMatch = String(query).match(
+      /\b[A-Z]{2,6}\s*[-]?\s*\d{3,4}\b/i
+    );
+
+    if (courseMatch) {
+      detectedCourse =
+        courseMatch[0]
+          .replace(/\s+/g, "")
+          .toUpperCase();
+    }
+  }
+
+  if (!detectedYear) {
+    const yearMatch =
+      String(query).match(/\b20\d{2}\b/);
+
+    if (yearMatch) {
+      detectedYear = yearMatch[0];
+    }
+  }
+
+  if (!detectedExamType) {
+    if (/mid[\s-]*term/i.test(query)) {
+      detectedExamType = "Mid Term";
+    } else if (/end[\s-]*term/i.test(query)) {
+      detectedExamType = "End Term";
+    }
+  }
+
+  if (!detectedMonth) {
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December"
+    ];
+
+    for (const m of months) {
+      if (
+        new RegExp(`\\b${m}\\b`, "i").test(query)
+      ) {
+        detectedMonth = m;
+        break;
+      }
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Crawl the LIVE SRM INTRANET
+  // ----------------------------------------------------------
+
+  const startUrl = BASE_INTRANET + "/";
+
+  const queue = [
+    {
+      url: startUrl,
+      depth: 0,
+      path: ["SRM Intranet"]
+    }
+  ];
+
+  const visited = new Set();
+  const results = [];
+
+  const MAX_PAGES = 100;
+  const MAX_DEPTH = 7;
+
+  while (
+    queue.length > 0 &&
+    visited.size < MAX_PAGES
+  ) {
+    // Prioritize examination/question-paper pages.
+    queue.sort((a, b) => {
+      const score = url => {
+        const value = url.toLowerCase();
+
+        let n = 0;
+
+        if (value.includes("exam")) n += 30;
+        if (value.includes("question")) n += 30;
+        if (value.includes("paper")) n += 20;
+        if (value.includes("document")) n += 20;
+        if (value.includes("mid")) n += 10;
+        if (value.includes("end")) n += 10;
+
+        return n;
+      };
+
+      return score(b.url) - score(a.url);
+    });
+
+    const current = queue.shift();
+
+    if (!current) continue;
+
+    if (visited.has(current.url)) continue;
+
+    if (current.depth > MAX_DEPTH) continue;
+
+    visited.add(current.url);
+
+    let response;
+
+    try {
+      response = await fetch(current.url, {
+        headers: {
+          Cookie: sessionCookie || "",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        },
+        redirect: "follow"
+      });
+    } catch (error) {
+      continue;
+    }
+
+    if (!response.ok) {
+      continue;
+    }
+
+    const html = await response.text();
+
+    if (!html) continue;
+
+    const links =
+      extractIntranetLinks(
+        html,
+        current.url
+      );
+
+    for (const link of links) {
+
+      // ------------------------------------------------------
+      // PDF FOUND
+      // ------------------------------------------------------
+
+      if (isPdf(link)) {
+
+        const score = scoreResult(link);
+
+        const searchable =
+          `${link.label} ${link.url}`.toLowerCase();
+
+        const courseOK =
+          !detectedCourse ||
+          searchable.includes(
+            detectedCourse.toLowerCase()
+          );
+
+        const examOK =
+          !detectedExamType ||
+          searchable.includes(
+            detectedExamType.toLowerCase()
+          );
+
+        const yearOK =
+          !detectedYear ||
+          searchable.includes(
+            detectedYear
+          );
+
+        if (
+          courseOK &&
+          examOK &&
+          yearOK &&
+          score > 0
+        ) {
+          results.push({
+            title:
+              link.label ||
+              link.url.split("/").pop(),
+
+            courseCode:
+              detectedCourse || null,
+
+            examType:
+              detectedExamType || null,
+
+            year:
+              detectedYear || null,
+
+            month:
+              detectedMonth || null,
+
+            folderPath:
+              current.path.join(" / "),
+
+            pdfUrl:
+              link.url,
+
+            source:
+              "SRM Intranet Examination",
+
+            score
+          });
+        }
+
+        continue;
+      }
+
+      // ------------------------------------------------------
+      // CONTINUE CRAWLING SRM INTRANET
+      // ------------------------------------------------------
+
+      if (current.depth < MAX_DEPTH) {
+        try {
+          const linkHost =
+            new URL(link.url).host;
+
+          const intranetHost =
+            new URL(BASE_INTRANET).host;
+
+          if (
+            linkHost === intranetHost &&
+            !visited.has(link.url)
+          ) {
+            queue.push({
+              url: link.url,
+              depth: current.depth + 1,
+              path: [
+                ...current.path,
+                link.label
+              ]
+            });
+          }
+        } catch {
+          // Ignore malformed links.
+        }
+      }
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Remove duplicate PDFs
+  // ----------------------------------------------------------
+
+  const unique = new Map();
+
+  for (const item of results) {
+    if (!unique.has(item.pdfUrl)) {
+      unique.set(item.pdfUrl, item);
+    }
+  }
+
+  const finalResults =
+    [...unique.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map(item => {
+        const copy = { ...item };
+        delete copy.score;
+        return copy;
+      });
+
+  return res.status(200).json({
+    success: true,
+
+    query,
+
+    detected: {
+      courseCode: detectedCourse || null,
+      examType: detectedExamType || null,
+      year: detectedYear || null,
+      month: detectedMonth || null
+    },
+
+    pagesVisited:
+      visited.size,
+
+    results:
+      finalResults
+  });
+}
   try {
     if (req.method === "POST" && req.body.step === "discover") {
       const { sessionCookie } = req.body;
