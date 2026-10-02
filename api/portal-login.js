@@ -138,20 +138,26 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
-try { // ============================================================
-// LIVE SRM INTRANET EXAMINATION / QUESTION PAPER SEARCH
-// ============================================================
+try {
+  // searchExamDocuments block
 
-if (req.method === "POST" && req.body.step === "searchExamDocuments") {
-  const {
-    sessionCookie = "",
-    query = "",
-    courseCode = "",
-    examType = "",
-    year = "",
-    month = ""
-  } = req.body || {};
+  if (req.method === "POST" && req.body.step === "discover") {
+    // existing discover code
+  }
 
+  if (req.method === "POST" && req.body.step === "fetchPage") {
+    // existing fetchPage code
+  }
+
+  // start
+  // login
+  // probeReports
+  // probeAssets
+  // submitAttendanceCode
+
+} catch (e) {
+  // existing error handling
+}
   const BASE_INTRANET = "https://intranet.srmap.edu.in";
 
   function cleanText(value) {
